@@ -52,6 +52,9 @@ class Experiment:
     timeout_s: float = 1800
     quality_margin: float = 0.05
     monthly_spend_usd: float | None = None
+    early_stop: bool = False          # stop between trials once every arm has a clear verdict
+    early_stop_ci: float = 0.99       # stricter than the report's 95%: repeated looks invite flukes
+    early_stop_min_tasks: int = 10
     keep_workspaces: bool = False  # leaves the last checkout of each worker slot in place
     results_dir: Path = Path("runs")
     pricing: Path | None = None

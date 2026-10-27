@@ -112,6 +112,10 @@ mcp_config = "arms/search.mcp.json"
   p-value on per-task cost is exact.
 - Setup/harness failures are excluded and reported; agent failures count against the arm.
 - `budget_usd` stops scheduling when the experiment has spent that much.
+- `early_stop = true` (or `--early-stop`) checks after each full pass over the tasks and stops
+  running any arm whose answer is already clear at 99% confidence (stricter than the report's
+  95%, because looking repeatedly invites flukes). In the demo this cut spend by 38% with the
+  same verdicts.
 
 Outputs land in `results_dir`: `results.jsonl` (one line per run), `runs/<task>__<arm>__t<n>/`
 (stream log, patch, check output, per-call usage), `report.md`, `report.html`, `summary.json`.

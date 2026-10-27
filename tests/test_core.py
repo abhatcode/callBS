@@ -193,6 +193,44 @@ sys.exit(1)
 '''
 
 
+class EarlyStopTest(unittest.TestCase):
+    def _exp(self, tmp, arms):
+        from callbs import demo
+        exp = config.load(demo.build(tmp, n_tasks=12, trials=3))
+        exp.arms = [a for a in exp.arms if a.name in arms]
+        exp.early_stop = True
+        return exp
+
+    def test_stops_when_answer_is_clear(self):
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            exp = self._exp(tmp, {"baseline", "schema-filter"})  # cheaper on every task
+            r = Runner(exp, PRICES, log=lambda *_: None)
+            r.run()
+            n = len(load_results(exp.results_dir / "results.jsonl"))
+            self.assertEqual(n, 12 * 2)  # one trial, then stopped
+            self.assertIn("SAVES MONEY", r.early_stopped)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_retires_decided_arm_and_keeps_testing_unclear_one(self):
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            # schema-filter is clear after one pass; compressor-light is noise around zero.
+            exp = self._exp(tmp, {"baseline", "schema-filter", "compressor-light"})
+            r = Runner(exp, PRICES, log=lambda *_: None)
+            r.run()
+            self.assertIsNone(r.early_stopped)
+            self.assertIn("schema-filter", r.retired)
+            recs = load_results(exp.results_dir / "results.jsonl")
+            count = lambda arm: sum(1 for x in recs if x["arm"] == arm)
+            self.assertEqual(count("schema-filter"), 12)          # one pass only
+            self.assertEqual(count("compressor-light"), 12 * 3)   # all three
+            self.assertEqual(count("baseline"), 12 * 3)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 class FatalErrorTest(unittest.TestCase):
     def test_auth_failure_stops_experiment(self):
         import sys

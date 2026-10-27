@@ -9,6 +9,7 @@ from statistics import median
 from .runner import EXCLUDED_OUTCOMES
 
 N_BOOT = 4000
+DECISIVE = {"SAVES MONEY", "COSTS MORE", "HURTS QUALITY"}
 
 
 def _per_task(records: list[dict]) -> dict[str, dict[str, dict]]:
@@ -119,7 +120,7 @@ def wilcoxon_signed_rank(diffs: list[float]) -> float | None:
 
 
 def compare(records: list[dict], baseline: str, arm: str, quality_margin: float = 0.05,
-            monthly_spend: float | None = None, seed: int = 0) -> dict:
+            monthly_spend: float | None = None, seed: int = 0, ci_level: float = 0.95) -> dict:
     per_task = _per_task(records)
     tasks = [t for t, arms in per_task.items() if arms[baseline]["n"] and arms[arm]["n"]]
     out = {"arm": arm, "baseline": baseline, "paired_tasks": len(tasks)}
@@ -149,9 +150,9 @@ def compare(records: list[dict], baseline: str, arm: str, quality_margin: float 
         boot_cps.append(cb / ca - 1 if math.isfinite(ca) and math.isfinite(cb) else math.nan)
         boot_cpr.append(_cpr(b) / _cpr(a) - 1 if _cpr(a) else math.nan)
         boot_sr.append(_rate(b) - _rate(a))
-    out["cps_change_ci"] = _ci(boot_cps)
-    out["cost_per_run_change_ci"] = _ci(boot_cpr)
-    out["success_diff_ci"] = _ci(boot_sr)
+    out["cps_change_ci"] = _ci(boot_cps, ci_level)
+    out["cost_per_run_change_ci"] = _ci(boot_cpr, ci_level)
+    out["success_diff_ci"] = _ci(boot_sr, ci_level)
 
     diffs = [b["cost"] / b["n"] - a["cost"] / a["n"] for a, b in zip(A, B)]
     out["wilcoxon_p_cost_per_run"] = wilcoxon_signed_rank(diffs)

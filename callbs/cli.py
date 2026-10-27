@@ -22,6 +22,7 @@ budget_usd = 50                   # stop scheduling new runs past this total
 max_run_usd = 5                   # per-run cap passed to the agent
 timeout_s = 1800
 quality_margin = 0.05             # a 5-point drop in success rate counts as "hurts quality"
+early_stop = true                 # stop paying once the answer is clear (checked after each trial)
 # monthly_spend_usd = 25000       # turns the result into $/month
 # tasks_file = "tasks.toml"       # or `callbs mine` to draft tasks from your history
 
@@ -89,6 +90,8 @@ def cmd_run(args):
         for t, a, n in order[: args.show]:
             print(f"  {t.id:<24} {a.name:<20} trial {n}")
         return
+    if args.early_stop:
+        exp.early_stop = True
     runner = Runner(exp, _prices(exp.pricing), retry_errors=args.retry_errors)
     runner.run(limit=args.limit)
     _write_report(exp, open_browser=args.open)
@@ -177,6 +180,8 @@ def main(argv=None):
     s.add_argument("--show", type=int, default=12, help="rows of the schedule to print with --dry-run")
     s.add_argument("--limit", type=int, help="only do the next N runs")
     s.add_argument("--retry-errors", action="store_true", help="re-run runs that ended in setup/agent errors")
+    s.add_argument("--early-stop", action="store_true",
+                   help="stop between trials once every arm has a clear answer (saves spend)")
     s.add_argument("--open", action="store_true", help="open the HTML report")
     s.set_defaults(fn=cmd_run)
 

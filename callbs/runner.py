@@ -76,6 +76,8 @@ class Runner:
         self._commits: dict[str, str] = {}
         self.spent = 0.0
         self.abort_reason: str | None = None
+        self.early_stopped: str | None = None
+        self.retired: dict[str, str] = {}  # arm -> verdict, no longer scheduled
 
     def run(self, limit: int | None = None) -> list[dict]:
         exp = self.exp
@@ -92,6 +94,55 @@ class Runner:
             todo = todo[:limit]
         self.log(f"{len(todo)} runs to do, {len(skip)} already recorded, ${self.spent:.2f} spent so far")
 
+        new = []
+        # Run one trial (a full pass over every task and arm) at a time, so early stopping
+        # can look at complete passes and never at a half-finished one.
+        for trial in sorted({n for _, _, n in todo}):
+            if self.abort_reason or self._over_budget():
+                break
+            if exp.early_stop and trial > 0:
+                for arm, verdict in self.decided_arms().items():
+                    if arm not in self.retired:
+                        self.retired[arm] = verdict
+                        self.log(f"\nEARLY STOP for `{arm}` before trial {trial + 1}: {verdict} "
+                                 f"at {exp.early_stop_ci:.0%} confidence; no more runs for it")
+                candidates = {a.name for a in exp.arms} - {exp.baseline}
+                if candidates <= set(self.retired):
+                    self.early_stopped = "; ".join(f"{a}: {v}" for a, v in self.retired.items())
+                    self.log("every candidate has a clear answer; experiment finished early")
+                    break
+            batch = [x for x in todo if x[2] == trial and x[1].name not in self.retired]
+            new += self._run_batch(batch)
+        if self.abort_reason:
+            self.log(f"\nSTOPPED: the agent environment is broken, not the arm: {self.abort_reason}\n"
+                     "Fix it, then re-run with --retry-errors.")
+        return new
+
+    def _over_budget(self) -> bool:
+        return self.exp.budget_usd is not None and self.spent >= self.exp.budget_usd
+
+    def decided_arms(self) -> dict[str, str]:
+        """Candidate arms whose answer is already clear, at a stricter confidence level.
+
+        Checking for a result after every pass and stopping as soon as one appears makes
+        flukes more likely, so this uses 99% intervals instead of the report's 95%.
+        """
+        from . import stats  # local import: stats imports this module
+        exp = self.exp
+        records = load_results(self.results_path)
+        decided = {}
+        for arm in exp.arms:
+            if arm.name == exp.baseline:
+                continue
+            c = stats.compare(records, exp.baseline, arm.name, exp.quality_margin,
+                              seed=exp.seed, ci_level=exp.early_stop_ci)
+            enough = c["paired_tasks"] >= min(len(exp.tasks), exp.early_stop_min_tasks)
+            if enough and c["verdict"] in stats.DECISIVE:
+                decided[arm.name] = c["verdict"]
+        return decided
+
+    def _run_batch(self, todo: list) -> list[dict]:
+        exp = self.exp
         new = []
         with ThreadPoolExecutor(max_workers=max(1, exp.parallel)) as pool:
             pending = {}
@@ -121,11 +172,8 @@ class Runner:
                         f.write(json.dumps(rec) + "\n")
                 self.log(f"  {rec['task']:<24} {rec['arm']:<16} t{rec['trial']}  "
                          f"{rec['outcome']:<15} ${rec['cost_usd']:.4f}  (total ${self.spent:.2f})")
-                if not submit_next() and exp.budget_usd is not None and self.spent >= exp.budget_usd:
+                if not submit_next() and self._over_budget():
                     self.log(f"budget of ${exp.budget_usd} reached; stopping after in-flight runs")
-        if self.abort_reason:
-            self.log(f"\nSTOPPED: the agent environment is broken, not the arm: {self.abort_reason}\n"
-                     "Fix it, then re-run with --retry-errors.")
         return new
 
     def run_one(self, task: Task, arm: Arm, trial: int) -> dict:
