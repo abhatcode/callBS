@@ -105,7 +105,11 @@ def _write_report(exp, monthly=None, open_browser=False):
     arms = [a.name for a in exp.arms]
     a = stats.analyze(records, arms, exp.baseline, exp.quality_margin,
                       monthly or exp.monthly_spend_usd, exp.seed)
-    info = {"name": exp.name, "agent_type": exp.agent.get("type", "claude-code")}
+    auth_by_arm: dict[str, set] = {}
+    for r in records:
+        if r.get("agent_auth"):
+            auth_by_arm.setdefault(r["arm"], set()).add(r["agent_auth"])
+    info = {"name": exp.name, "agent_type": exp.agent.get("type", "claude-code"), "auth_by_arm": auth_by_arm}
     md = report.markdown(a, info)
     (exp.results_dir / "report.md").write_text(md, encoding="utf-8")
     page = exp.results_dir / "report.html"
@@ -117,6 +121,11 @@ def _write_report(exp, monthly=None, open_browser=False):
     print(f"report: {page}")
     if open_browser:
         webbrowser.open(page.as_uri())
+
+
+def cmd_validate(args):
+    from .validate import validate
+    validate(config.load(args.config))
 
 
 def cmd_report(args):
@@ -184,6 +193,10 @@ def main(argv=None):
                    help="stop between trials once every arm has a clear answer (saves spend)")
     s.add_argument("--open", action="store_true", help="open the HTML report")
     s.set_defaults(fn=cmd_run)
+
+    s = sub.add_parser("validate", help="check every task fails before its fix and passes after ($0, no AI)")
+    s.add_argument("config")
+    s.set_defaults(fn=cmd_validate)
 
     s = sub.add_parser("report", help="analyze recorded results")
     s.add_argument("config")

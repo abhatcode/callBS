@@ -19,6 +19,7 @@ class Task:
     setup: list[str] = field(default_factory=list)
     restore_paths: list[str] = field(default_factory=list)  # reset after the agent, before the check
     check_timeout_s: float = 900
+    fix_commit: str | None = None  # the real fix; `callbs validate` checks the task against it
     mock: dict = field(default_factory=dict)  # only read by the mock agent
 
 

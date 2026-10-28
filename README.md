@@ -44,9 +44,13 @@ and one that rewrites history can turn cheap reads into expensive writes.
 
 ## Run a real experiment
 
+Step-by-step for a $10 budget, testing Headroom: [docs/REAL_TEST.md](docs/REAL_TEST.md)
+(config in [examples/headroom-test.toml](examples/headroom-test.toml)).
+
 ```bash
 python -m callbs init experiment.toml        # template with example arms
 python -m callbs mine --repo ../my-repo -o tasks.toml   # draft tasks from past sessions
+python -m callbs validate experiment.toml              # each task fails before its fix, passes after ($0)
 python -m callbs run experiment.toml --dry-run          # schedule + exact agent command, no spend
 python -m callbs run experiment.toml --limit 4          # small smoke test
 python -m callbs run experiment.toml                    # the rest (resumable)

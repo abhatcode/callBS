@@ -1,0 +1,10 @@
+# Your jobs go here (guide step A). Copy this block once per past bug fix,
+# then run `callbs validate examples/headroom-test.toml` and delete any DROP jobs.
+
+[[tasks]]
+id = "example-replace-me"
+commit = "REPLACE_WITH_FIX_SHA^"
+fix_commit = "REPLACE_WITH_FIX_SHA"
+prompt = "Describe the bug the way a user would report it. Don't give away the fix."
+check = "git checkout REPLACE_WITH_FIX_SHA -- tests && python -m pytest tests -q -k REPLACE_WITH_TEST_NAME"
+restore_paths = ["tests/"]

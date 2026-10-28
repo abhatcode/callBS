@@ -1,0 +1,32 @@
+# Headroom vs no Headroom on more-itertools, on a $10 budget.
+# Guide: docs/REAL_TEST.md
+[experiment]
+name = "headroom-haiku"
+repo = "../../more-itertools"      # cloned next to callBS (see the guide, step A)
+tasks_file = "tasks.toml"          # you write these in step A, check them in step B
+baseline = "baseline"
+trials = 3
+parallel = 1                       # one at a time: simplest, and gentlest on rate limits
+budget_usd = 5                     # stage E; the workspace limit ($10) is the hard cap
+timeout_s = 900
+early_stop = true                  # stop paying once the answer is clear
+monthly_spend_usd = 200000         # e.g. 200 engineers x $1,000/month, for the $/month line
+
+[agent]
+type = "claude-code"
+model = "claude-haiku-5-5"         # stage F: change to "claude-sonnet-5-5"
+effort = "medium"
+# Headroom shrinks command output, so the AI needs to be able to run commands.
+# Every arm gets the same tools, so the comparison stays fair.
+allowed_tools = ["Read", "Edit", "Write", "Glob", "Grep", "Bash"]
+
+[[arms]]
+name = "baseline"
+
+[[arms]]
+name = "headroom"
+# Headroom's proxy only. `headroom wrap claude` also installs a second tool (Serena),
+# which would test two changes at once.
+sidecar = { command = "headroom proxy --port {port}", ready_timeout_s = 60 }
+env = { ANTHROPIC_BASE_URL = "http://127.0.0.1:{port}" }
+overhead_usd_per_run = 0.0         # Headroom is free and runs locally

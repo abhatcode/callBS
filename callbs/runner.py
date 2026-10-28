@@ -250,7 +250,7 @@ class Runner:
                 cost_breakdown=usage["cost"], tokens=usage["tokens"],
                 cache_hit_rate=usage["cache_hit_rate"], api_calls=usage["calls"],
                 by_model=usage["by_model"], num_turns=res.num_turns,
-                reported_cost_usd=res.reported_cost_usd, agent_exit=res.exit_code,
+                reported_cost_usd=res.reported_cost_usd, agent_exit=res.exit_code, agent_auth=res.auth,
                 agent_duration_s=round(res.duration_s, 2), check_exit=chk.exit_code,
                 diff_stat=diff_stat, notes=res.notes,
             )

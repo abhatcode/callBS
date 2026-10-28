@@ -134,6 +134,7 @@ class ClaudeCodeAgent(Agent):
             notes=meta["notes"], stdout=r.stdout, stderr=r.stderr,
         )
         out.budget_exceeded = "budget" in subtype
+        out.auth = meta["init"].get("apiKeySource")
         api_status = res.get("api_error_status")
         if r.timed_out:
             out.is_error, out.error = True, f"timed out after {ctx.timeout_s}s"

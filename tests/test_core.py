@@ -231,6 +231,28 @@ class EarlyStopTest(unittest.TestCase):
             shutil.rmtree(tmp, ignore_errors=True)
 
 
+class ValidateTest(unittest.TestCase):
+    def test_flags_good_and_bad_tasks(self):
+        import subprocess
+        from callbs import demo
+        from callbs.validate import validate
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            exp = config.load(demo.build(tmp, n_tasks=2, trials=1))
+            # Commit the real fix for f0 only; f1 stays broken at the "fix" commit.
+            (exp.repo / "lib" / "f0.py").write_text("def f(x):\n    return x * 2\n")
+            git = lambda *a: subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                                            cwd=exp.repo, check=True, capture_output=True)
+            git("commit", "-qam", "fix f0")
+            for t in exp.tasks:
+                t.commit, t.fix_commit = "HEAD~1", "HEAD"
+            rows = {r["task"]: r for r in validate(exp, log=lambda *_: None)}
+            self.assertTrue(rows["fix-f00"]["ok"], rows["fix-f00"])
+            self.assertFalse(rows["fix-f01"]["ok"], rows["fix-f01"])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 class FatalErrorTest(unittest.TestCase):
     def test_auth_failure_stops_experiment(self):
         import sys

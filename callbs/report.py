@@ -60,6 +60,11 @@ def _caveats(a: dict, exp_info: dict) -> list[str]:
                          "estimate differs from ours by >5%. Check the price table or proxy rewriting.")
         if s["excluded_runs"]:
             notes.append(f"Arm `{s['arm']}`: {s['excluded_runs']} runs excluded for setup/harness errors.")
+    auths = exp_info.get("auth_by_arm") or {}
+    if len({a for s in auths.values() for a in s}) > 1:
+        notes.append("Runs were billed to different accounts (" + "; ".join(
+            f"`{arm}`: {', '.join(sorted(s))}" for arm, s in auths.items()) +
+            "). `none` means a subscription login. Arms should use the same account.")
     if exp_info.get("agent_type") == "mock":
         notes.append("These numbers come from the **simulated** agent, not real API calls.")
     return notes

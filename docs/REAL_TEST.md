@@ -1,153 +1,161 @@
-# Running a real optimizer test
+# Running a real test on $10
 
-Goal: one result you could show a buyer. "On <repo>, <optimizer> changed cost per
-successful task by X% (95% CI …) with no loss in success rate."
+**The question:** does Headroom (a free, open-source tool that shrinks what Claude Code
+sends to Anthropic) make each finished coding job cheaper or more expensive?
 
-Budget: about $50–250 of API spend for 20 tasks × 3 arms × 3 trials on Sonnet.
+**Budget:** $10 of Anthropic API credit, with a hard cap so you can't go over.
+Everything else is free.
+
+| Stage | What you do | Costs | Why it matters |
+|---|---|---|---|
+| A | Pick a repo and write about 12 jobs | $0 | The jobs are the test. Bad jobs give a meaningless answer. |
+| B | `callbs validate` | $0 | Throws out broken jobs before any AI runs, so no money is spent on them. |
+| C | Set up the $10 key with a hard cap | $0 | Makes overspending impossible. |
+| D | Smoke test: 2 runs | ~$0.10 | Confirms Headroom is really in the path before you pay for 70 runs. |
+| E | Main test on Claude Haiku 5.5 | ≤ $5 | The cheapest model gives a clear answer from enough runs. |
+| F | Check the result on Claude Sonnet 5.5 | ≤ $4 | Companies mostly use Sonnet or Opus. Checks the answer holds there. |
+| G | Compare callbs to your real Anthropic bill | $0 | Proves callbs's numbers match a real invoice. That's what you're selling. |
 
 ---
 
-## 1. Prepare the machine (10 min)
+## Why spend API money at all, instead of the Pro plan?
 
-1. Update Claude Code so its built-in prices and model list are current:
-   ```powershell
-   claude update
-   claude --version     # write this down; it goes in the report
-   ```
-2. Create an API key for experiments only: https://console.anthropic.com, then
-   *Settings → Workspaces → New workspace "callbs"*. Set a **spend limit** on that
-   workspace (e.g. $150), then create a key inside it.
-3. Use the key **only in the terminal that runs callbs**, so your normal Claude Code
-   stays on your Pro plan:
-   ```powershell
-   $env:ANTHROPIC_API_KEY = "sk-ant-..."   # this terminal only; closes with it
-   ```
-4. Install callbs:
-   ```powershell
-   git clone https://github.com/abhatcode/callBS
-   cd callBS
-   python -m pip install -e .
-   callbs demo            # sanity check, no spend
-   ```
+1. **Headroom needs it.** Headroom works by sitting between Claude Code and
+   Anthropic. Its docs only describe that working with an API key, so it's not known
+   whether your Pro login works through it.
+2. **Proof the numbers are right (stage G).** callbs works out costs from Anthropic's
+   price list. Only a pay-per-use API account produces a bill you can compare it
+   against. "Our numbers match your invoice to the cent" is the strongest thing you
+   can tell a buyer.
+3. **It's how buyers pay.** Companies with big bills pay per use, like this.
 
-## 2. Pick the target repo (15 min)
+Anything that doesn't need Headroom, like checking your jobs work, stays on Pro or
+costs nothing at all.
 
-You need a repo whose tests run on your machine in under a minute or two. Pick one:
+---
 
-- **A public Python library with good tests** (recommended for a publishable result),
-  e.g. `more-itertools`, `attrs`, `python-dateutil`, `click`. Clone it next to callBS
-  and confirm `python -m pytest -q` passes.
-- **One of your repos**, if it has tests. Run `callbs mine --repo ..\stock-ranker -o tasks.toml`
-  to draft tasks from your past sessions, then write a check for each.
+## A. Pick a repo and write the jobs (free, 1–2 hours)
 
-## 3. Build ~20 tasks from real bug fixes (1–2 h; this is the important part)
+Use **more-itertools**: a popular open-source Python library with fast tests that works on Windows.
 
-For each merged bug-fix PR or commit that added or changed a test:
+```powershell
+cd C:\Users\fivem\Desktop
+git clone https://github.com/more-itertools/more-itertools
+cd more-itertools
+python -m pip install -e .
+python -m pytest -q          # should pass
+```
 
-| Field | What to put |
-|---|---|
-| `commit` | the commit **before** the fix: `<fix_sha>^` |
-| `prompt` | the issue text as a user would write it. Don't hint at the fix. |
-| `check` | bring in the fix's tests, then run only them (see below) |
-| `restore_paths` | `["tests/"]` so the agent can't pass by editing tests |
+Find past bug fixes that came with a test:
+```powershell
+git log --oneline -i --grep="fix" -- tests/ | Select-Object -First 40
+```
 
-The tests that prove the fix don't exist yet at the starting commit, so the check
-pulls them from the fix commit after the agent is done (hidden tests, SWE-bench style):
+For each one, write a job in `C:\Users\fivem\Desktop\callBS\examples\tasks.toml`:
 
 ```toml
 [[tasks]]
-id = "dateutil-1234"
-commit = "a1b2c3d^"
-prompt = "parse('2026-03-29T02:30', tzinfos=...) raises for Europe/Berlin during the DST gap. It should return the shifted time."
-check = "git checkout a1b2c3d -- tests/test_parser.py && python -m pytest tests/test_parser.py -q -k dst"
+id = "chunked-strict"
+commit = "a1b2c3d^"          # the commit BEFORE the fix (the ^ means "parent of")
+fix_commit = "a1b2c3d"       # the real fix, used only by `callbs validate`
+prompt = "chunked(..., strict=True) doesn't raise when the last chunk is short. It should raise ValueError."
+check = "git checkout a1b2c3d -- tests && python -m pytest tests/test_more.py -q -k chunked"
 restore_paths = ["tests/"]
-setup = ["python -m pip install -q -e ."]
 ```
 
-Find candidates fast:
-```powershell
-git log --oneline --grep="fix" -- tests/ | Select-Object -First 60
-```
-Before you keep a task, check that it is valid by hand. The check must **fail** at
-`<fix_sha>^` and **pass** at `<fix_sha>`. Drop tasks that are flaky or take more than 2 minutes.
+- **prompt:** describe the bug the way someone would report it. Don't give away the fix.
+- **check:** brings in the fix's tests *after* the AI is done, then runs them. The AI never
+  sees the answer key, so it can't cheat.
+- Aim for 12 jobs. Prefer small, clear bugs: they're cheaper and the results are cleaner.
 
-## 4. Choose the arms
-
-Start with three. Each answers a different question:
-
-```toml
-[agent]
-type = "claude-code"
-model = "claude-sonnet-5-5"
-effort = "medium"
-# rtk compresses shell output, so every arm must be allowed to use the shell:
-allowed_tools = ["Read", "Edit", "Write", "Glob", "Grep", "Bash"]
-
-[[arms]]
-name = "baseline"
-
-[[arms]]
-name = "no-mcp"            # tool-schema filtering: the lever research says works
-mcp_config = "arms/empty.mcp.json"   # contents: {"mcpServers": {}}
-
-[[arms]]
-name = "rtk"               # vendor claims 60–90% savings; JetBrains measured +7.6%
-claude_settings = "arms/rtk.settings.json"
-```
-
-**rtk setup:** install it, then run its init command **in a scratch folder** and copy
-the `hooks` block it writes into `arms/rtk.settings.json`. Don't run its global init.
-That changes `~/.claude/settings.json`, and the hook would then run in the
-baseline too, which spoils the comparison. Afterwards, check `~/.claude/settings.json` has no
-rtk hook.
-
-**A proxy optimizer (Headroom, Kompressor, …)** is set up as a sidecar:
-```toml
-[[arms]]
-name = "headroom"
-sidecar = { command = "headroom proxy --port {port}" }   # use the tool's real command
-env = { ANTHROPIC_BASE_URL = "http://127.0.0.1:{port}" }
-overhead_usd_per_run = 0.0   # add its licence cost or its own LLM calls if any
-```
-
-## 5. Experiment settings
-
-```toml
-[experiment]
-name = "rtk-vs-baseline-<repo>"
-repo = "../<repo>"
-baseline = "baseline"
-trials = 3
-parallel = 2           # 2–4 with an API key; more risks rate limits
-budget_usd = 150       # callbs stops scheduling here
-timeout_s = 1200
-monthly_spend_usd = 25000   # a typical buyer's bill, for the $/month line
-tasks_file = "tasks.toml"
-```
-
-## 6. Run it
+## B. Validate the jobs (free, no AI)
 
 ```powershell
-callbs run real.toml --dry-run          # schedule + exact agent command, $0
-callbs run real.toml --limit 3          # smoke test, about $1–3
+cd C:\Users\fivem\Desktop\callBS
+python -m pip install -e .
+callbs validate examples/headroom-test.toml
 ```
-Open `runs/<name>/runs/*/` and check one run of each arm:
-- `check_output.txt` shows the hidden tests ran (not "file not found")
-- `patch.diff` is a real change
-- `agent_stdout.jsonl`: for the rtk arm, its hook actually fired
+Every job must say **OK**: the test fails before the fix and passes after it. Delete
+any **DROP** job from `tasks.toml`. A broken job wastes money on every run and adds
+noise to the answer.
 
-Then run the rest. It resumes where it left off, and Ctrl-C is safe:
+## C. Set up the $10 (free, 10 minutes)
+
+1. Go to **platform.claude.com** and sign in.
+2. **Settings → Billing**: add $10 of credit.
+3. **Settings → Workspaces → Create workspace**, name it `callbs`.
+   Set its **spend limit to $10**. This is the hard cap: Anthropic stops serving
+   requests at $10, whatever happens on your computer.
+4. Inside the `callbs` workspace, **create an API key**. Copy it.
+5. Open a new PowerShell window **just for testing** and paste the key there:
+   ```powershell
+   $env:ANTHROPIC_API_KEY = "sk-ant-..."
+   ```
+   - It lasts only until you close that window. Your normal Claude Code in other
+     windows stays on your Pro plan.
+   - **Never** put the key in a file, the config, or the repo.
+   - Don't use `setx`. That saves it permanently, and then all your Claude Code use
+     would be billed to the $10.
+
+## D. Install Headroom and smoke test (~$0.10)
+
 ```powershell
-callbs run real.toml --open
+python -m pip install "headroom-ai[all]"
+headroom proxy --port 8787      # quick check it starts, then Ctrl+C
 ```
-If you hit rate limits or login errors, re-run with `--retry-errors`.
 
-## 7. Read the result
+Run two jobs (one with Headroom, one without):
+```powershell
+callbs run examples/headroom-test.toml --limit 2
+```
+Open `examples\runs\headroom-haiku\runs\` and check, for each run:
+- `check_output.txt` shows the tests ran (not "file not found")
+- `patch.diff` contains a real code change
+- the Headroom run's `agent_stdout.jsonl` has no connection errors
 
-- **SAVES MONEY / COSTS MORE**: the cost-per-success confidence interval is entirely on one side of 0.
-- **INCONCLUSIVE**: the report says roughly how many tasks would settle it. Add tasks, not trials.
-- **HURTS QUALITY**: cheaper, but it solves fewer tasks. This is the most important finding to show buyers.
-- Check the **Caveats** section. If "agent's own cost estimate differs" appears on every run, Claude Code's
-  price table is out of date; callbs's own numbers come from the official price page.
+Then run `callbs report examples/headroom-test.toml`. The two runs should use different
+amounts of input text. If they're identical, Headroom isn't in the path. Stop and fix that.
 
-Keep `results.jsonl`, `report.html` and the `claude --version` output together. That's your evidence.
+The report also warns if runs were billed to different accounts.
+Every run must say `ANTHROPIC_API_KEY`.
+
+## E. Main test on Haiku 5.5 (≤ $5)
+
+```powershell
+callbs run examples/headroom-test.toml --open
+```
+- 12 jobs × 2 setups × 3 repeats = up to 72 runs.
+- `budget_usd = 5` stops it at $5.
+- `early_stop = true` stops paying once the answer is clear, often after the first repeat.
+- Safe to stop with Ctrl+C. Running the same command again continues where it left off.
+- If something goes wrong (e.g. the key is missing), callbs stops after one run instead of burning money.
+
+## F. Check it on Sonnet 5.5 (≤ $4)
+
+In `examples/headroom-test.toml`:
+- set `model = "claude-sonnet-5-5"`, `name = "headroom-sonnet"`, `trials = 1` and `budget_usd = 4`
+
+Then run it again. Sonnet costs about 20x more per word than Haiku, so this is only
+4–8 runs. It won't prove anything on its own. It shows whether Sonnet points the same
+way as the Haiku result.
+
+## G. Compare with your real bill (free)
+
+1. Wait an hour, then open **platform.claude.com → Usage**, filtered to the
+   `callbs` workspace.
+2. Compare that total to `total spend` at the top of the two `report.md` files.
+3. They should match within a few percent. Write down both numbers. That's your proof
+   the measurements are right.
+
+---
+
+## What you'll have at the end
+
+- A verdict for Headroom on real code: **saves money / costs more / hurts quality /
+  not clear yet**, with how sure the result is.
+- How much less (or more) text Headroom sent, set against how the bill changed. That
+  gap is the whole story.
+- callbs's numbers set against your real Anthropic bill.
+
+If the answer is "not clear yet", the report says roughly how many more jobs would
+settle it. Add jobs rather than repeats.

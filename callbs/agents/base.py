@@ -20,6 +20,7 @@ class AgentResult:
     reported_cost_usd: float | None = None
     notes: list[str] = field(default_factory=list)
     fatal: bool = False  # environment problem (e.g. expired login): stop the experiment
+    auth: str | None = None  # which account paid, e.g. "ANTHROPIC_API_KEY" or "none" (subscription login)
     stdout: str = ""
     stderr: str = ""
 
